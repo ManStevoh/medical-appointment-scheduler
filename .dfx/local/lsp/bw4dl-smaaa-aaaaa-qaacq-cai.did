@@ -1,0 +1,29 @@
+type MedicalAppointment = record {
+  id : text;
+  createdAt : opt nat64;
+  appointmentDate : text;
+  updatedAt : opt nat64;
+  reminderSent : bool;
+  patientName : text;
+  doctorName : text;
+  medicalRecord : text;
+  isScheduled : bool;
+};
+type _AzleResult = variant { Ok : MedicalAppointment; Err : text };
+type _AzleResult_1 = variant { Ok : opt MedicalAppointment; Err : text };
+type _AzleResult_2 = variant { Ok : vec MedicalAppointment; Err : text };
+service : {
+  cancelAppointment : (text) -> (_AzleResult);
+  completeAppointment : (text) -> (_AzleResult);
+  deleteAppointment : (text) -> (_AzleResult_1);
+  getAppointment : (text) -> (_AzleResult) query;
+  getAppointments : () -> (_AzleResult_2) query;
+  getCanceledAppointments : () -> (_AzleResult_2) query;
+  getUpcomingAppointments : (float64) -> (_AzleResult_2) query;
+  rescheduleAppointment : (text, text) -> (_AzleResult);
+  scheduleAppointment : (MedicalAppointment) -> (_AzleResult);
+  searchAppointments : (text) -> (_AzleResult_2) query;
+  sendReminder : (text) -> (_AzleResult);
+  updateAppointment : (text, MedicalAppointment) -> (_AzleResult);
+  updateMedicalRecord : (text, text) -> (_AzleResult);
+}
