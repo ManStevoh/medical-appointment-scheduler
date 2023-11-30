@@ -18,12 +18,20 @@ type MedicalAppointment = Record<{
     id: string;
     patientName: string;
     doctorName: string;
-    appointmentDate: string;
+    appointmentDate: nat64;
     isScheduled: boolean;
     reminderSent: boolean;
     medicalRecord: string;
     createdAt: Opt<nat64>;
     updatedAt: Opt<nat64>;
+}>;
+
+
+// Define the structure of a Medical Appointment Payload
+type MedicalAppointmentPayload = Record<{
+    patientName: string;
+    doctorName: string;
+    appointmentDate: nat64;
 }>;
 
 // Initialize a storage mechanism for Medical Appointments
@@ -46,22 +54,32 @@ export function searchAppointments(query: string): Result<Vec<MedicalAppointment
     }
 }
 
+function isInvalidPaylaod(payload: MedicalAppointmentPayload): boolean {
+    // return false for valid strings to ensure the next input data can be evaluated
+    const isInvalidString = (str : string) => str.trim().length > 0 ? false : true;
+    // if all checks return false, the if statement that would run for invalid payload is skipped
+    return isInvalidString(payload.doctorName) || isInvalidString(payload.patientName) || ic.time() > payload.appointmentDate;
+}
+
 // Update to schedule a new Medical Appointment
 $update
-export function scheduleAppointment(appointment: MedicalAppointment): Result<MedicalAppointment, string> {
+export function scheduleAppointment(payload: MedicalAppointmentPayload): Result<MedicalAppointment, string> {
     try {
-        // Generate a unique ID for the appointment using uuidv4
-        appointment.id = uuidv4();
-        // Set initial values for scheduling
-        appointment.isScheduled = true;
-        appointment.reminderSent = false;
-        // Set creation and update timestamps
-        appointment.createdAt = Opt.Some(ic.time());
-        appointment.updatedAt = Opt.Some(ic.time());
-
         // Validate the appointment object for required fields
-        if (!appointment.patientName || !appointment.doctorName || !appointment.appointmentDate) {
-            return Result.Err('Missing required fields in the appointment object');
+        if (isInvalidPaylaod(payload)) {
+            return Result.Err(`Missing required fields in the appointment object`);
+        }
+        let appointment : MedicalAppointment = {
+        // Generate a unique ID for the appointment using uuidv4
+        id : uuidv4(),
+        // Set initial values for scheduling
+        isScheduled : true,
+        reminderSent : false,
+        medicalRecord: "",
+        // Set creation and update timestamps
+        createdAt : Opt.Some(ic.time()),
+        updatedAt : Opt.None,
+        ...payload
         }
 
         // Add the appointment to appointmentStorage
@@ -136,25 +154,26 @@ export function getAppointment(id: string): Result<MedicalAppointment, string> {
 
 // Update to modify an existing Medical Appointment
 $update
-export function updateAppointment(id: string, updatedAppointment: MedicalAppointment): Result<MedicalAppointment, string> {
+export function updateAppointment(id: string, updatedAppointment: MedicalAppointmentPayload): Result<MedicalAppointment, string> {
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment) => {
-            // Validate the updated appointment object for required fields
-            if (!updatedAppointment.patientName || !updatedAppointment.doctorName || !updatedAppointment.appointmentDate) {
-                return Result.Err('Missing required fields in the updated appointment object');
-            }
+          // Validate the updated appointment object for required fields
+          if (isInvalidPaylaod(updatedAppointment)) {
+            return Result.Err(
+              "Missing required fields in the updated appointment object"
+            );
+          }
+          // Create a new appointment object with the updated fields
+          const updated: MedicalAppointment = {
+            ...existingAppointment,
+            ...updatedAppointment,
+            updatedAt: Opt.Some(ic.time()),
+          };
 
-            // Create a new appointment object with the updated fields
-            const updated: MedicalAppointment = {
-                ...existingAppointment,
-                ...updatedAppointment,
-                updatedAt: Opt.Some(ic.time()),
-            };
+          // Update the appointment in appointmentStorage
+          appointmentStorage.insert(id, updated);
 
-            // Update the appointment in appointmentStorage
-            appointmentStorage.insert(id, updated);
-
-            return Result.Ok(updated);
+          return Result.Ok(updated);
         },
         None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} does not exist`),
     }) as Result<MedicalAppointment, string>;
@@ -171,7 +190,7 @@ export function deleteAppointment(id: string): Result<Opt<MedicalAppointment>, s
 
         // Delete the appointment from appointmentStorage
         const deletedAppointment = appointmentStorage.remove(id);
-        if (!deletedAppointment) {
+        if (!deletedAppointment.Some) {
             return Result.Err(`Appointment with ID ${id} does not exist`);
         }
 
@@ -204,15 +223,17 @@ export function updateMedicalRecord(id: string, newRecord: string): Result<Medic
 
 // Query to get upcoming appointments within a specified number of days
 $query
-export function getUpcomingAppointments(daysAhead: number): Result<Vec<MedicalAppointment>, string> {
+export function getUpcomingAppointments(daysAhead: nat64): Result<Vec<MedicalAppointment>, string> {
     try {
-        const currentDate = new Date().getTime();
+        const daysAheadInNanoseconds = BigInt(daysAhead) * BigInt(86_400_000_000_000);
+        const currentDate = ic.time();
+        const filterTImestamp = daysAheadInNanoseconds + currentDate;
         // Filter appointments based on being scheduled and within the specified time frame
         const upcomingAppointments = appointmentStorage
             .values()
             .filter((appointment) => {
-                const appointmentDate = new Date(appointment.appointmentDate).getTime();
-                return appointment.isScheduled && appointmentDate > currentDate && appointmentDate < currentDate + daysAhead * 24 * 60 * 60 * 1000;
+                const appointmentDate = appointment.appointmentDate;
+                return appointment.isScheduled && appointmentDate > currentDate && appointmentDate < filterTImestamp;
             });
 
         return Result.Ok(upcomingAppointments);
@@ -234,27 +255,6 @@ export function getCanceledAppointments(): Result<Vec<MedicalAppointment>, strin
     } catch (error) {
         return Result.Err(`Error getting canceled appointments: ${error}`);
     }
-}
-
-// Update to reschedule an existing Medical Appointment to a new date
-$update
-export function rescheduleAppointment(id: string, newDate: string): Result<MedicalAppointment, string> {
-    return match(appointmentStorage.get(id), {
-        Some: (existingAppointment) => {
-            // Create a new appointment object with the updated appointment date
-            const rescheduled: MedicalAppointment = {
-                ...existingAppointment,
-                appointmentDate: newDate,
-                updatedAt: Opt.Some(ic.time()),
-            };
-
-            // Update the appointment in appointmentStorage
-            appointmentStorage.insert(id, rescheduled);
-
-            return Result.Ok(rescheduled);
-        },
-        None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} does not exist`),
-    }) as Result<MedicalAppointment, string>;
 }
 
 // Update to mark an existing Medical Appointment as completed
