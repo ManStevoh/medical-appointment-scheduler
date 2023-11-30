@@ -18,7 +18,7 @@ type MedicalAppointment = Record<{
     id: string;
     patientName: string;
     doctorName: string;
-    appointmentDate: string;
+    appointmentDate: nat64;
     isScheduled: boolean;
     reminderSent: boolean;
     medicalRecord: string;
@@ -31,7 +31,7 @@ type MedicalAppointment = Record<{
 type MedicalAppointmentPayload = Record<{
     patientName: string;
     doctorName: string;
-    appointmentDate: string;
+    appointmentDate: nat64;
 }>;
 
 // Initialize a storage mechanism for Medical Appointments
@@ -55,14 +55,10 @@ export function searchAppointments(query: string): Result<Vec<MedicalAppointment
 }
 
 function isInvalidPaylaod(payload: MedicalAppointmentPayload): boolean {
+    // return false for valid strings to ensure the next input data can be evaluated
     const isInvalidString = (str : string) => str.trim().length > 0 ? false : true;
-    const isInvalidDate = (date: string) => {
-        const currentTime = new Date().getTime();
-        const payloadScheduleTIme = new Date(date).getTime();
-        if (typeof payloadScheduleTIme == "undefined") return true; 
-        return payloadScheduleTIme > currentTime ? false: true
-    }
-    return isInvalidString(payload.doctorName) || isInvalidString(payload.patientName) || isInvalidDate(payload.appointmentDate);
+    // if all checks return false, the if statement that would run for invalid payload is skipped
+    return isInvalidString(payload.doctorName) || isInvalidString(payload.patientName) || ic.time() > payload.appointmentDate;
 }
 
 // Update to schedule a new Medical Appointment
@@ -71,7 +67,7 @@ export function scheduleAppointment(payload: MedicalAppointmentPayload): Result<
     try {
         // Validate the appointment object for required fields
         if (isInvalidPaylaod(payload)) {
-            return Result.Err('Missing required fields in the appointment object');
+            return Result.Err(`Missing required fields in the appointment object`);
         }
         let appointment : MedicalAppointment = {
         // Generate a unique ID for the appointment using uuidv4
@@ -81,7 +77,7 @@ export function scheduleAppointment(payload: MedicalAppointmentPayload): Result<
         reminderSent : false,
         medicalRecord: "",
         // Set creation and update timestamps
-        createdAt : Opt.Some(BigInt(new Date(payload.appointmentDate).getTime())),
+        createdAt : Opt.Some(ic.time()),
         updatedAt : Opt.None,
         ...payload
         }
@@ -194,7 +190,7 @@ export function deleteAppointment(id: string): Result<Opt<MedicalAppointment>, s
 
         // Delete the appointment from appointmentStorage
         const deletedAppointment = appointmentStorage.remove(id);
-        if (!deletedAppointment.None) {
+        if (!deletedAppointment.Some) {
             return Result.Err(`Appointment with ID ${id} does not exist`);
         }
 
@@ -227,15 +223,17 @@ export function updateMedicalRecord(id: string, newRecord: string): Result<Medic
 
 // Query to get upcoming appointments within a specified number of days
 $query
-export function getUpcomingAppointments(daysAhead: number): Result<Vec<MedicalAppointment>, string> {
+export function getUpcomingAppointments(daysAhead: nat64): Result<Vec<MedicalAppointment>, string> {
     try {
-        const currentDate = new Date().getTime();
+        const daysAheadInNanoseconds = BigInt(daysAhead) * BigInt(86_400_000_000_000);
+        const currentDate = ic.time();
+        const filterTImestamp = daysAheadInNanoseconds + currentDate;
         // Filter appointments based on being scheduled and within the specified time frame
         const upcomingAppointments = appointmentStorage
             .values()
             .filter((appointment) => {
-                const appointmentDate = new Date(appointment.appointmentDate).getTime();
-                return appointment.isScheduled && appointmentDate > currentDate && appointmentDate < currentDate + daysAhead * 24 * 60 * 60 * 1000;
+                const appointmentDate = appointment.appointmentDate;
+                return appointment.isScheduled && appointmentDate > currentDate && appointmentDate < filterTImestamp;
             });
 
         return Result.Ok(upcomingAppointments);
