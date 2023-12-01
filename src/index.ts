@@ -32,6 +32,12 @@ const appointmentStorage = new StableBTreeMap<string, MedicalAppointment>(0, 44,
 // Query to search for appointments based on a query string
 $query
 export function searchAppointments(query: string): Result<Vec<MedicalAppointment>, string> {
+
+    if (!query) {
+        // Validation: Check if Query is invalid or missing
+        return Result.Err<Vec<MedicalAppointment>, string>(`Invalid id=${query}.`);
+    }
+
     try {
         const lowerCaseQuery = query.toLowerCase();
         // Filter appointments based on patient or doctor names
@@ -65,8 +71,11 @@ export function scheduleAppointment(appointment: MedicalAppointment): Result<Med
         }
 
         // Add the appointment to appointmentStorage
-        appointmentStorage.insert(appointment.id, appointment);
-
+        try {
+            appointmentStorage.insert(appointment.id, appointment);
+        } catch (error) {
+            return Result.Err(`Error while inserting appointment`);
+        }
         return Result.Ok(appointment);
     } catch (error) {
         return Result.Err(`Error scheduling appointment: ${error}`);
@@ -76,25 +85,41 @@ export function scheduleAppointment(appointment: MedicalAppointment): Result<Med
 // Update to cancel an existing Medical Appointment
 $update
 export function cancelAppointment(id: string): Result<MedicalAppointment, string> {
-    return match(appointmentStorage.get(id), {
-        Some: (appointment) => {
-            if (!appointment.isScheduled) {
-                return Result.Err<MedicalAppointment, string>(`Appointment with id=${id} is already canceled`);
-            }
 
-            // Create a new appointment with isScheduled set to false
-            const canceledAppointment: MedicalAppointment = { ...appointment, isScheduled: false };
-            appointmentStorage.insert(id, canceledAppointment);
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
 
-            return Result.Ok(canceledAppointment);
-        },
-        None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} not found`),
-    }) as Result<MedicalAppointment, string>;
+    try {
+        return match(appointmentStorage.get(id), {
+            Some: (appointment) => {
+                if (!appointment.isScheduled) {
+                    return Result.Err<MedicalAppointment, string>(`Appointment with id=${id} is already canceled`);
+                }
+
+                // Create a new appointment with isScheduled set to false
+                const canceledAppointment: MedicalAppointment = { ...appointment, isScheduled: false };
+                appointmentStorage.insert(id, canceledAppointment);
+
+                return Result.Ok(canceledAppointment);
+            },
+            None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} not found`),
+        }) as Result<MedicalAppointment, string>;
+    } catch (error) {
+        return Result.Err(`Error canceling appointment: ${error}`);
+    }
 }
 
 // Update to send a reminder for a scheduled Medical Appointment
 $update
 export function sendReminder(id: string): Result<MedicalAppointment, string> {
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
+
+
     return match(appointmentStorage.get(id), {
         Some: (appointment) => {
             if (!appointment.isScheduled || appointment.reminderSent) {
@@ -128,15 +153,28 @@ export function getAppointments(): Result<Vec<MedicalAppointment>, string> {
 // Query to get a specific Medical Appointment by ID
 $query
 export function getAppointment(id: string): Result<MedicalAppointment, string> {
-    return match(appointmentStorage.get(id), {
-        Some: (appointment) => Result.Ok<MedicalAppointment, string>(appointment),
-        None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} not found`),
-    }) as Result<MedicalAppointment, string>;
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
+    try {
+        return match(appointmentStorage.get(id), {
+            Some: (appointment) => Result.Ok<MedicalAppointment, string>(appointment),
+            None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} not found`),
+        }) as Result<MedicalAppointment, string>;
+    } catch (error) {
+        return Result.Err(`Error while getting single appointment by ID: ${error}`);
+    }
 }
+
 
 // Update to modify an existing Medical Appointment
 $update
 export function updateAppointment(id: string, updatedAppointment: MedicalAppointment): Result<MedicalAppointment, string> {
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment) => {
             // Validate the updated appointment object for required fields
@@ -147,13 +185,18 @@ export function updateAppointment(id: string, updatedAppointment: MedicalAppoint
             // Create a new appointment object with the updated fields
             const updated: MedicalAppointment = {
                 ...existingAppointment,
-                ...updatedAppointment,
+                patientName: updatedAppointment.patientName,
+                doctorName: updatedAppointment.doctorName,
+                appointmentDate: updatedAppointment.appointmentDate,
                 updatedAt: Opt.Some(ic.time()),
             };
 
-            // Update the appointment in appointmentStorage
-            appointmentStorage.insert(id, updated);
-
+            try {
+                // Update the appointment in appointmentStorage
+                appointmentStorage.insert(id, updated);
+            } catch (error) {
+                return Result.Err(`Error while inserting updated appointment`);
+            }
             return Result.Ok(updated);
         },
         None: () => Result.Err<MedicalAppointment, string>(`Appointment with id=${id} does not exist`),
@@ -163,6 +206,11 @@ export function updateAppointment(id: string, updatedAppointment: MedicalAppoint
 // Update to delete an existing Medical Appointment by ID
 $update
 export function deleteAppointment(id: string): Result<Opt<MedicalAppointment>, string> {
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<Opt<MedicalAppointment>, string>(`Invalid id=${id}.`);
+    }
+
     try {
         // Validate the id parameter using the isValidUUID function
         if (!isValidUUID(id)) {
@@ -184,6 +232,16 @@ export function deleteAppointment(id: string): Result<Opt<MedicalAppointment>, s
 // Update to modify the medical record of an existing Medical Appointment
 $update
 export function updateMedicalRecord(id: string, newRecord: string): Result<MedicalAppointment, string> {
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
+
+    if (!newRecord) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${newRecord}.`);
+    }
+
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment) => {
             // Create a new appointment object with the updated medical record
@@ -193,8 +251,12 @@ export function updateMedicalRecord(id: string, newRecord: string): Result<Medic
                 updatedAt: Opt.Some(ic.time()),
             };
 
-            // Update the appointment in appointmentStorage
-            appointmentStorage.insert(id, updated);
+            try {
+                // Update the appointment in appointmentStorage
+                appointmentStorage.insert(id, updated);
+            } catch (error) {
+                return Result.Err(`Error while inserting updated appointment`);
+            }
 
             return Result.Ok(updated);
         },
@@ -205,6 +267,14 @@ export function updateMedicalRecord(id: string, newRecord: string): Result<Medic
 // Query to get upcoming appointments within a specified number of days
 $query
 export function getUpcomingAppointments(daysAhead: number): Result<Vec<MedicalAppointment>, string> {
+    if (!daysAhead) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<Vec<MedicalAppointment>, string>(`Invalid id=${daysAhead}.`);
+    }
+    if (daysAhead < 0) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<Vec<MedicalAppointment>, string>(`daysAhead always greater than zero`);
+    }
     try {
         const currentDate = new Date().getTime();
         // Filter appointments based on being scheduled and within the specified time frame
@@ -239,6 +309,16 @@ export function getCanceledAppointments(): Result<Vec<MedicalAppointment>, strin
 // Update to reschedule an existing Medical Appointment to a new date
 $update
 export function rescheduleAppointment(id: string, newDate: string): Result<MedicalAppointment, string> {
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
+
+    if (!newDate) {
+        // Validation: Check if newate is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${newDate}.`);
+    }
+
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment) => {
             // Create a new appointment object with the updated appointment date
@@ -248,8 +328,12 @@ export function rescheduleAppointment(id: string, newDate: string): Result<Medic
                 updatedAt: Opt.Some(ic.time()),
             };
 
-            // Update the appointment in appointmentStorage
-            appointmentStorage.insert(id, rescheduled);
+            try {
+                // Update the appointment in appointmentStorage
+                appointmentStorage.insert(id, rescheduled);
+            } catch (error) {
+                return Result.Err(`Error while inserting updated appointment`);
+            }
 
             return Result.Ok(rescheduled);
         },
@@ -260,6 +344,13 @@ export function rescheduleAppointment(id: string, newDate: string): Result<Medic
 // Update to mark an existing Medical Appointment as completed
 $update
 export function completeAppointment(id: string): Result<MedicalAppointment, string> {
+
+    if (!id) {
+        // Validation: Check if ID is invalid or missing
+        return Result.Err<MedicalAppointment, string>(`Invalid id=${id}.`);
+    }
+
+
     return match(appointmentStorage.get(id), {
         Some: (appointment) => {
             if (!appointment.isScheduled) {
