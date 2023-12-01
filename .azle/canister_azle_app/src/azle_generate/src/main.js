@@ -1164,6 +1164,9 @@ var v4_default = v4;
 // src/index.ts
 var appointmentStorage = new StableBTreeMap(0, 44, 1024);
 function searchAppointments(query) {
+    if (!query) {
+        return Result.Err(`Invalid id=${query}.`);
+    }
     try {
         const lowerCaseQuery = query.toLowerCase();
         const filteredAppointments = appointmentStorage.values().filter((appointment)=>appointment.patientName.toLowerCase().includes(lowerCaseQuery) || appointment.doctorName.toLowerCase().includes(lowerCaseQuery)
@@ -1177,14 +1180,18 @@ exports.searchAppointments = searchAppointments;
 function scheduleAppointment(appointment) {
     try {
         appointment.id = v4_default();
-        appointment.isScheduled = false;
+        appointment.isScheduled = true;
         appointment.reminderSent = false;
         appointment.createdAt = Opt.Some(ic.time());
         appointment.updatedAt = Opt.Some(ic.time());
         if (!appointment.patientName || !appointment.doctorName || !appointment.appointmentDate) {
             return Result.Err("Missing required fields in the appointment object");
         }
-        appointmentStorage.insert(appointment.id, appointment);
+        try {
+            appointmentStorage.insert(appointment.id, appointment);
+        } catch (error) {
+            return Result.Err(`Error while inserting appointment`);
+        }
         return Result.Ok(appointment);
     } catch (error) {
         return Result.Err(`Error scheduling appointment: ${error}`);
@@ -1192,22 +1199,32 @@ function scheduleAppointment(appointment) {
 }
 exports.scheduleAppointment = scheduleAppointment;
 function cancelAppointment(id) {
-    return match(appointmentStorage.get(id), {
-        Some: (appointment)=>{
-            if (!appointment.isScheduled) {
-                return Result.Err(`Appointment with id=${id} is already canceled`);
-            }
-            const canceledAppointment = _objectSpread({}, appointment, {
-                isScheduled: false
-            });
-            appointmentStorage.insert(id, canceledAppointment);
-            return Result.Ok(canceledAppointment);
-        },
-        None: ()=>Result.Err(`Appointment with id=${id} not found`)
-    });
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
+    try {
+        return match(appointmentStorage.get(id), {
+            Some: (appointment)=>{
+                if (!appointment.isScheduled) {
+                    return Result.Err(`Appointment with id=${id} is already canceled`);
+                }
+                const canceledAppointment = _objectSpread({}, appointment, {
+                    isScheduled: false
+                });
+                appointmentStorage.insert(id, canceledAppointment);
+                return Result.Ok(canceledAppointment);
+            },
+            None: ()=>Result.Err(`Appointment with id=${id} not found`)
+        });
+    } catch (error) {
+        return Result.Err(`Error canceling appointment: ${error}`);
+    }
 }
 exports.cancelAppointment = cancelAppointment;
 function sendReminder(id) {
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
     return match(appointmentStorage.get(id), {
         Some: (appointment)=>{
             if (!appointment.isScheduled || appointment.reminderSent) {
@@ -1234,23 +1251,40 @@ function getAppointments() {
 }
 exports.getAppointments = getAppointments;
 function getAppointment(id) {
-    return match(appointmentStorage.get(id), {
-        Some: (appointment)=>Result.Ok(appointment)
-        ,
-        None: ()=>Result.Err(`Appointment with id=${id} not found`)
-    });
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
+    try {
+        return match(appointmentStorage.get(id), {
+            Some: (appointment)=>Result.Ok(appointment)
+            ,
+            None: ()=>Result.Err(`Appointment with id=${id} not found`)
+        });
+    } catch (error) {
+        return Result.Err(`Error while getting single appointment by ID: ${error}`);
+    }
 }
 exports.getAppointment = getAppointment;
 function updateAppointment(id, updatedAppointment) {
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment)=>{
             if (!updatedAppointment.patientName || !updatedAppointment.doctorName || !updatedAppointment.appointmentDate) {
                 return Result.Err("Missing required fields in the updated appointment object");
             }
-            const updated = _objectSpread({}, existingAppointment, updatedAppointment, {
+            const updated = _objectSpread({}, existingAppointment, {
+                patientName: updatedAppointment.patientName,
+                doctorName: updatedAppointment.doctorName,
+                appointmentDate: updatedAppointment.appointmentDate,
                 updatedAt: Opt.Some(ic.time())
             });
-            appointmentStorage.insert(id, updated);
+            try {
+                appointmentStorage.insert(id, updated);
+            } catch (error) {
+                return Result.Err(`Error while inserting updated appointment`);
+            }
             return Result.Ok(updated);
         },
         None: ()=>Result.Err(`Appointment with id=${id} does not exist`)
@@ -1258,6 +1292,9 @@ function updateAppointment(id, updatedAppointment) {
 }
 exports.updateAppointment = updateAppointment;
 function deleteAppointment(id) {
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
     try {
         if (!isValidUUID(id)) {
             return Result.Err("Invalid appointment ID");
@@ -1273,13 +1310,23 @@ function deleteAppointment(id) {
 }
 exports.deleteAppointment = deleteAppointment;
 function updateMedicalRecord(id, newRecord) {
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
+    if (!newRecord) {
+        return Result.Err(`Invalid id=${newRecord}.`);
+    }
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment)=>{
             const updated = _objectSpread({}, existingAppointment, {
                 medicalRecord: newRecord,
                 updatedAt: Opt.Some(ic.time())
             });
-            appointmentStorage.insert(id, updated);
+            try {
+                appointmentStorage.insert(id, updated);
+            } catch (error) {
+                return Result.Err(`Error while inserting updated appointment`);
+            }
             return Result.Ok(updated);
         },
         None: ()=>Result.Err(`Appointment with id=${id} does not exist`)
@@ -1287,6 +1334,12 @@ function updateMedicalRecord(id, newRecord) {
 }
 exports.updateMedicalRecord = updateMedicalRecord;
 function getUpcomingAppointments(daysAhead) {
+    if (!daysAhead) {
+        return Result.Err(`Invalid id=${daysAhead}.`);
+    }
+    if (daysAhead < 0) {
+        return Result.Err(`daysAhead always greater than zero`);
+    }
     try {
         const currentDate = new Date().getTime();
         const upcomingAppointments = appointmentStorage.values().filter((appointment)=>{
@@ -1310,13 +1363,23 @@ function getCanceledAppointments() {
 }
 exports.getCanceledAppointments = getCanceledAppointments;
 function rescheduleAppointment(id, newDate) {
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
+    if (!newDate) {
+        return Result.Err(`Invalid id=${newDate}.`);
+    }
     return match(appointmentStorage.get(id), {
         Some: (existingAppointment)=>{
             const rescheduled = _objectSpread({}, existingAppointment, {
                 appointmentDate: newDate,
                 updatedAt: Opt.Some(ic.time())
             });
-            appointmentStorage.insert(id, rescheduled);
+            try {
+                appointmentStorage.insert(id, rescheduled);
+            } catch (error) {
+                return Result.Err(`Error while inserting updated appointment`);
+            }
             return Result.Ok(rescheduled);
         },
         None: ()=>Result.Err(`Appointment with id=${id} does not exist`)
@@ -1324,6 +1387,9 @@ function rescheduleAppointment(id, newDate) {
 }
 exports.rescheduleAppointment = rescheduleAppointment;
 function completeAppointment(id) {
+    if (!id) {
+        return Result.Err(`Invalid id=${id}.`);
+    }
     return match(appointmentStorage.get(id), {
         Some: (appointment)=>{
             if (!appointment.isScheduled) {
